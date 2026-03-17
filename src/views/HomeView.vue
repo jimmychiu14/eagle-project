@@ -7,8 +7,6 @@ const router = useRouter()
 const stockStore = useStockStore()
 
 const stockId = ref('')
-const startDate = ref('2024-01-01')
-const endDate = ref(new Date().toISOString().split('T')[0])
 const recentSearches = ref<string[]>([])
 
 const popularStocks = [
@@ -31,7 +29,7 @@ onMounted(() => {
 async function searchStock() {
   if (!stockId.value) return
   addToRecent(stockId.value)
-  await stockStore.fetchStockData(stockId.value, startDate.value, endDate.value)
+  await stockStore.fetchStockData(stockId.value)
   router.push(`/stock/${stockId.value}`)
 }
 

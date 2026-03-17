@@ -37,7 +37,6 @@ class YahooFinanceClient {
     
     const result = response.data.chart.result[0]
     const meta = result.meta
-    const quote = result.indicators.quote[0]
     
     return {
       symbol: meta.symbol,

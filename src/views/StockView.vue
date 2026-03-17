@@ -246,7 +246,7 @@ async function loadData() {
   
   stockInfo.value = null
   
-  const [data, quote] = await Promise.all([
+  const [data] = await Promise.all([
     fetchTWSEData(stockId),
     fetchQuote(stockId)
   ])

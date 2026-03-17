@@ -8,12 +8,13 @@ export default defineConfig({
             '@': resolve(__dirname, 'src')
         }
     },
+    base: '/eagle-project/',
     server: {
         proxy: {
-            '^/finmind/.*': {
-                target: 'https://api.finmindtrade.com/api/v4/data',
+            '/yahoo': {
+                target: 'https://query1.finance.yahoo.com',
                 changeOrigin: true,
-                rewrite: function (path) { return path.replace(/^\/finmind/, ''); }
+                rewrite: function (path) { return path; }
             }
         }
     }
