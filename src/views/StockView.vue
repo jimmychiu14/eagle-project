@@ -1,12 +1,38 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as echarts from 'echarts'
+import { useWatchlistStore } from '@/stores/watchlistStore'
+import { 
+  generateMockStockData, 
+  generateMockFinancialData,
+  calculateMA, 
+  calculateRSI, 
+  calculateMACD,
+  formatNumber,
+  formatVolume
+} from '@/utils/mockData'
 
 const route = useRoute()
 const router = useRouter()
+const watchlistStore = useWatchlistStore()
+
 const chartRef = ref<HTMLElement | null>(null)
-let chartInstance: echarts.ECharts | null = null
+const chartInstance = ref<echarts.ECharts | null>(null)
+
+// 股票代碼對應名稱
+const stockNames: Record<string, string> = {
+  '2330': '台積電',
+  '6770': '力積電',
+  '2317': '鴻海',
+  '2454': '聯發科',
+  '2881': '富邦金',
+  '0050': '元大台灣50',
+  '2303': '聯電',
+  '3008': '大立光',
+  '2002': '中鋼',
+  '5880': '合庫金'
+}
 
 // 股票基本資料
 const stockInfo = ref<{
@@ -20,153 +46,84 @@ const stockInfo = ref<{
   amplitude: string
 } | null>(null)
 
-const stockNames: Record<string, string> = {
-  '2330': '台積電',
-  '6770': '力積電',
-  '2317': '鴻海',
-  '2454': '聯發科',
-  '2881': '富邦金',
-  '0050': '元大台灣50'
-}
+// 財報資料
+const financialData = ref<{
+  eps: number
+  revenue: number
+  grossMargin: number
+  roe: number
+  netProfit: number
+  debtRatio: number
+  pe: number
+  pb: number
+} | null>(null)
 
-// 計算 MA 均線
-function calculateMA(data: any[], period: number) {
-  const result: (number | null)[] = []
-  for (let i = 0; i < data.length; i++) {
-    if (i < period - 1) {
-      result.push(null)
-    } else {
-      let sum = 0
-      for (let j = 0; j < period; j++) {
-        sum += data[i - j].close
-      }
-      result.push(Math.round((sum / period) * 100) / 100)
-    }
-  }
-  return result
-}
+// 技術指標
+const technicalIndicators = ref<{
+  rsi: number | null
+  macd: { macd: number | null; signal: number | null; histogram: number | null }
+}>({
+  rsi: null,
+  macd: { macd: null, signal: null, histogram: null }
+})
 
-// 從台灣證交所抓多個月資料
-async function fetchTWSEData(stockId: string) {
-  const dataList: any[] = []
-  const today = new Date()
-  
-  // 抓最近 6 個月的資料
-  for (let i = 0; i < 6; i++) {
-    const d = new Date(today.getFullYear(), today.getMonth() - i, 1)
-    const year = d.getFullYear()
-    const month = String(d.getMonth() + 1).padStart(2, '0')
-    const date = `${year}${month}`
-    
-    try {
-      const url = `https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?date=${date}01&stockNo=${stockId}&response=json`
-      const response = await fetch(url)
-      const data = await response.json()
-      
-      if (data.stat === 'OK' && data.data) {
-        const monthData = data.data.map((item: any[]) => {
-          const dateStr = item[0].replace(/\//g, '-')
-          const [y, m, day] = dateStr.split('-')
-          const fullDate = `${parseInt(y) + 1911}-${m}-${day}`
-          
-          return {
-            date: fullDate,
-            open: parseFloat(item[3]?.replace(/,/g, '') || '0'),
-            high: parseFloat(item[4]?.replace(/,/g, '') || '0'),
-            low: parseFloat(item[5]?.replace(/,/g, '') || '0'),
-            close: parseFloat(item[6]?.replace(/,/g, '') || '0'),
-            volume: parseFloat(item[1]?.replace(/,/g, '') || '0')
-          }
-        }).filter((d: any) => d.close > 0)
-        
-        dataList.push(...monthData)
-      }
-    } catch (error) {
-      console.error(`Failed to fetch ${date}:`, error)
-    }
-  }
-  
-  // 按日期排序
-  dataList.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-  
-  return dataList
-}
+// 股票代碼
+const stockId = computed(() => {
+  const id = route.params.id as string
+  return id?.replace('.TW', '') || '2330'
+})
 
-// 抓即時報價
-async function fetchQuote(stockId: string) {
-  try {
-    const today = new Date()
-    const dateStr = today.toISOString().split('T')[0].replace(/-/g, '')
-    
-    const url = `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${dateStr}&response=json&type=ALLBUT0999`
-    const response = await fetch(url)
-    const data = await response.json()
-    
-    if (data.tables) {
-      for (const table of data.tables) {
-        if (table.headers) {
-          const headers = table.headers
-          const rows = table.data || []
-          
-          const stockRow = rows.find((row: any[]) => {
-            const code = row[headers.indexOf('股票代號')]
-            return code === stockId
-          })
-          
-          if (stockRow) {
-            const getVal = (idx: number) => stockRow[idx] || '-'
-            
-            const price = getVal(headers.indexOf('收盤價'))
-            const open = getVal(headers.indexOf('開盤價'))
-            const high = getVal(headers.indexOf('最高價'))
-            const low = getVal(headers.indexOf('最低價'))
-            const volume = getVal(headers.indexOf('成交筆數'))
-            
-            let change = '-'
-            let changePercent = '-'
-            let amplitude = '-'
-            
-            if (price !== '-' && open !== '-') {
-              const p = parseFloat(price.replace(/,/g, ''))
-              const o = parseFloat(open.replace(/,/g, ''))
-              change = (p - o).toFixed(2)
-              changePercent = ((p - o) / o * 100).toFixed(2) + '%'
-              
-              if (low !== '-' && high !== '-') {
-                const l = parseFloat(low.replace(/,/g, ''))
-                const h = parseFloat(high.replace(/,/g, ''))
-                amplitude = ((h - l) / l * 100).toFixed(2) + '%'
-              }
-            }
-            
-            stockInfo.value = {
-              price,
-              change: change.startsWith('-') ? change : '+' + change,
-              changePercent: changePercent.startsWith('-') ? changePercent : '+' + changePercent,
-              open,
-              high,
-              low,
-              volume: volume || '-',
-              amplitude
-            }
-            return
-          }
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Failed to fetch quote:', error)
+const stockName = computed(() => {
+  return stockNames[stockId.value] || route.params.id?.toString().replace('.TW', '') || '股票'
+})
+
+// 檢查是否在觀察名單
+const isWatched = computed(() => {
+  return watchlistStore.isInWatchlist(route.params.id as string)
+})
+
+// 設定價格提醒
+const alertThreshold = computed(() => {
+  const item = watchlistStore.watchlist.find(w => w.id === route.params.id)
+  return item?.alertThreshold
+})
+
+// 切換觀察名單
+function toggleWatchlist() {
+  const id = route.params.id as string
+  if (watchlistStore.isInWatchlist(id)) {
+    watchlistStore.removeFromWatchlist(id)
+  } else {
+    watchlistStore.addToWatchlist(id, stockName.value)
   }
 }
 
+// 設定價格提醒
+function setAlert() {
+  const id = route.params.id as string
+  const current = alertThreshold.value
+  const threshold = prompt('請輸入價格漲跌幅門檻（%）:', current?.toString() || '5')
+  if (threshold) {
+    const value = parseFloat(threshold)
+    if (!isNaN(value) && value > 0) {
+      if (!watchlistStore.isInWatchlist(id)) {
+        watchlistStore.addToWatchlist(id, stockName.value)
+      }
+      watchlistStore.setAlertThreshold(id, value)
+      alert(`已設定 ${stockName.value} 的價格提醒為 ±${value}%`)
+    }
+  }
+}
+
+// 初始化 K 線圖（包含均線、成交量、RSI、MACD）
 function initChart(data: any[]) {
   if (!chartRef.value || data.length === 0) return
   
-  if (chartInstance) {
-    chartInstance.dispose()
+  if (chartInstance.value) {
+    chartInstance.value.dispose()
   }
   
-  chartInstance = echarts.init(chartRef.value)
+  chartInstance.value = echarts.init(chartRef.value)
   
   const dates = data.map(d => d.date)
   const values = data.map(d => [d.open, d.close, d.low, d.high])
@@ -178,78 +135,145 @@ function initChart(data: any[]) {
   const ma20 = calculateMA(data, 20)
   const ma60 = calculateMA(data, 60)
   
+  // 計算 RSI
+  const rsi = calculateRSI(data, 14)
+  technicalIndicators.value.rsi = rsi[rsi.length - 1]
+  
+  // 計算 MACD
+  const macdData = calculateMACD(data, 12, 26, 9)
+  technicalIndicators.value.macd = {
+    macd: macdData.macd[macdData.macd.length - 1],
+    signal: macdData.signal[macdData.signal.length - 1],
+    histogram: macdData.histogram[macdData.histogram.length - 1]
+  }
+  
+  // 處理 RSI 數據（只取最近 60 天）
+  const rsiData = rsi.slice(-60)
+  const rsiDates = dates.slice(-60)
+  
+  // 處理 MACD 數據（只取最近 60 天）
+  const macdLine = macdData.macd.slice(-60)
+  const signalLine = macdData.signal.slice(-60)
+  const histogram = macdData.histogram.slice(-60)
+  
   const option = {
     title: {
-      text: stockNames[route.params.id?.toString().replace('.TW', '') || ''] || '股票走勢',
+      text: stockName.value,
       left: 'center',
       subtext: `${data[0]?.date || ''} ~ ${data[data.length - 1]?.date || ''}`
     },
-    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    tooltip: { 
+      trigger: 'axis', 
+      axisPointer: { type: 'cross' },
+      formatter: function(params: any[]) {
+        let result = `<b>${params[0].axisValue}</b><br/>`
+        params.forEach(p => {
+          if (p.value !== null && p.value !== undefined) {
+            if (Array.isArray(p.value)) {
+              result += `${p.seriesName}: ${p.value[1]}<br/>`
+            } else {
+              result += `${p.seriesName}: ${p.value}<br/>`
+            }
+          }
+        })
+        return result
+      }
+    },
     legend: {
-      data: ['日K', 'MA5', 'MA10', 'MA20', 'MA60', '成交量'],
+      data: ['日K', 'MA5', 'MA20', 'MA60', '成交量', 'RSI', 'MACD'],
       top: 30
     },
     grid: [
-      { left: '10%', right: '10%', top: '18%', height: '45%' },
-      { left: '10%', right: '10%', top: '70%', height: '12%' }
+      { left: '10%', right: '10%', top: '15%', height: '35%' },      // K 線圖
+      { left: '10%', right: '10%', top: '53%', height: '10%' },     // 成交量
+      { left: '10%', right: '10%', top: '66%', height: '10%' },    // RSI
+      { left: '10%', right: '10%', top: '79%', height: '12%' }      // MACD
     ],
     xAxis: [
-      {
-        type: 'category', data: dates, boundaryGap: false,
-        axisLine: { onZero: false }, splitLine: { show: false },
-        min: 'dataMin', max: 'dataMax'
-      },
-      {
-        type: 'category', gridIndex: 1, data: dates, boundaryGap: false,
-        axisLine: { onZero: false }, axisTick: { show: false },
-        splitLine: { show: false }, axisLabel: { show: false },
-        min: 'dataMin', max: 'dataMax'
-      }
+      { type: 'category', data: dates, boundaryGap: false, axisLine: { onZero: false }, splitLine: { show: false }, min: 'dataMin', max: 'dataMax' },
+      { type: 'category', gridIndex: 1, data: dates, boundaryGap: false, axisLine: { onZero: false }, axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false }, min: 'dataMin', max: 'dataMax' },
+      { type: 'category', gridIndex: 2, data: rsiDates, boundaryGap: false, axisLine: { onZero: false }, axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false }, min: 'dataMin', max: 'dataMax' },
+      { type: 'category', gridIndex: 3, data: rsiDates, boundaryGap: false, axisLine: { onZero: false }, axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false }, min: 'dataMin', max: 'dataMax' }
     ],
     yAxis: [
       { scale: true, splitArea: { show: true }, position: 'right' },
-      { scale: true, gridIndex: 1, splitNumber: 2, axisLabel: { show: false },
-        axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false } }
+      { scale: true, gridIndex: 1, splitNumber: 2, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false } },
+      { scale: true, gridIndex: 2, min: 0, max: 100, splitNumber: 2, axisLabel: { show: true, formatter: '{value}' }, splitLine: { show: true } },
+      { scale: true, gridIndex: 3, axisLabel: { show: true }, splitLine: { show: true } }
     ],
     dataZoom: [
-      { type: 'inside', xAxisIndex: [0, 1], start: 70, end: 100 },
-      { show: true, xAxisIndex: [0, 1], type: 'slider', bottom: '2%', start: 70, end: 100 }
+      { type: 'inside', xAxisIndex: [0, 1, 2, 3], start: 60, end: 100 },
+      { show: true, xAxisIndex: [0, 1, 2, 3], type: 'slider', bottom: '2%', start: 60, end: 100 }
     ],
     series: [
+      // K 線圖和均線
       { name: 'MA5', type: 'line', data: ma5, smooth: true, lineStyle: { width: 1, color: '#e91e63' }, symbol: 'none' },
-      { name: 'MA10', type: 'line', data: ma10, smooth: true, lineStyle: { width: 1, color: '#9c27b0' }, symbol: 'none' },
       { name: 'MA20', type: 'line', data: ma20, smooth: true, lineStyle: { width: 1, color: '#3f51b5' }, symbol: 'none' },
       { name: 'MA60', type: 'line', data: ma60, smooth: true, lineStyle: { width: 1, color: '#009688' }, symbol: 'none' },
-      {
-        name: '日K', type: 'candlestick', data: values,
-        itemStyle: { color: '#ef5350', color0: '#26a69a', borderColor: '#ef5350', borderColor0: '#26a69a' }
-      },
-      {
-        name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: volumes,
-        itemStyle: {
-          color: function(params: any) {
-            const dataIndex = params.dataIndex
-            return values[dataIndex][1] > values[dataIndex][0] ? '#ef5350' : '#26a69a'
-          }
-        }
-      }
+      { name: '日K', type: 'candlestick', data: values, xAxisIndex: 0, yAxisIndex: 0,
+        itemStyle: { color: '#ef5350', color0: '#26a69a', borderColor: '#ef5350', borderColor0: '#26a69a' } },
+      // 成交量
+      { name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: volumes,
+        itemStyle: { color: function(params: any) { return values[params.dataIndex]?.[1] > values[params.dataIndex]?.[0] ? '#ef5350' : '#26a69a' } } },
+      // RSI
+      { name: 'RSI', type: 'line', xAxisIndex: 2, yAxisIndex: 2, data: rsiData, smooth: true, lineStyle: { width: 2, color: '#ff9800' }, symbol: 'none',
+        markLine: { data: [{ yAxis: 30, label: { formatter: '超賣' } }, { yAxis: 70, label: { formatter: '超買' } }], lineStyle: { type: 'dashed', color: '#999' } } },
+      // MACD
+      { name: 'MACD', type: 'line', xAxisIndex: 3, yAxisIndex: 3, data: macdLine, smooth: true, lineStyle: { width: 1.5, color: '#2196f3' }, symbol: 'none' },
+      { name: 'Signal', type: 'line', xAxisIndex: 3, yAxisIndex: 3, data: signalLine, smooth: true, lineStyle: { width: 1.5, color: '#ff9800' }, symbol: 'none' },
+      { name: 'Histogram', type: 'bar', xAxisIndex: 3, yAxisIndex: 3, data: histogram,
+        itemStyle: { color: function(params: any) { return params.value >= 0 ? '#ef5350' : '#26a69a' } } }
     ]
   }
   
-  chartInstance.setOption(option)
-  window.addEventListener('resize', () => chartInstance?.resize())
+  chartInstance.value.setOption(option)
+  window.addEventListener('resize', () => chartInstance.value?.resize())
 }
 
+// 載入資料（使用模擬資料）
 async function loadData() {
   const symbol = (route.params.id as string) || '2330.TW'
-  const stockId = symbol.replace('.TW', '')
   
   stockInfo.value = null
+  financialData.value = null
   
-  const [data] = await Promise.all([
-    fetchTWSEData(stockId),
-    fetchQuote(stockId)
-  ])
+  // 使用模擬資料
+  const data = generateMockStockData(symbol, 120)
+  
+  if (data.length > 0) {
+    const latest = data[data.length - 1]
+    const yesterday = data.length > 1 ? data[data.length - 2] : latest
+    
+    const change = latest.close - yesterday.close
+    const changePercent = (change / yesterday.close) * 100
+    const amplitude = ((latest.high - latest.low) / latest.low * 100)
+    
+    stockInfo.value = {
+      price: latest.close.toFixed(2),
+      change: (change >= 0 ? '+' : '') + change.toFixed(2),
+      changePercent: (changePercent >= 0 ? '+' : '') + changePercent.toFixed(2) + '%',
+      open: latest.open.toFixed(2),
+      high: latest.high.toFixed(2),
+      low: latest.low.toFixed(2),
+      volume: formatVolume(latest.volume),
+      amplitude: amplitude.toFixed(2) + '%'
+    }
+    
+    // 模擬財報資料
+    financialData.value = generateMockFinancialData(symbol)
+    
+    // 更新觀察名單價格
+    watchlistStore.updateStockPrice(symbol, latest.close, change, changePercent)
+    
+    // 檢查價格提醒
+    const triggered = watchlistStore.checkPriceAlert(symbol)
+    if (triggered) {
+      const direction = triggered.changePercent! > 0 ? '漲' : '跌'
+      setTimeout(() => {
+        alert(`🚨 價格提醒：${triggered.name} (${triggered.id})\n${direction}幅已達 ${Math.abs(triggered.changePercent!).toFixed(2)}%\n(設定門檻: ±${triggered.alertThreshold}%)`)
+      }, 500)
+    }
+  }
   
   initChart(data)
 }
@@ -267,7 +291,23 @@ watch(() => route.params.id, () => {
   <div class="stock-view">
     <header class="header">
       <button class="back-btn" @click="router.push('/')">← 返回</button>
-      <h1>{{ stockNames[route.params.id?.toString().replace('.TW', '') || ''] || route.params.id?.toString().replace('.TW', '') || '股票' }}</h1>
+      <h1>{{ stockName }}</h1>
+      <div class="header-actions">
+        <button 
+          class="watchlist-btn" 
+          :class="{ active: isWatched }"
+          @click="toggleWatchlist"
+        >
+          {{ isWatched ? '❤️' : '🤍' }} {{ isWatched ? '已收藏' : '收藏' }}
+        </button>
+        <button 
+          class="alert-btn" 
+          :class="{ active: alertThreshold }"
+          @click="setAlert"
+        >
+          {{ alertThreshold ? `🔔 ${alertThreshold}%` : '🔕 提醒' }}
+        </button>
+      </div>
     </header>
 
     <!-- 股票報價區 -->
@@ -301,6 +341,67 @@ watch(() => route.params.id, () => {
       </div>
     </div>
 
+    <!-- 技術指標 -->
+    <div v-if="technicalIndicators.rsi" class="tech-indicators">
+      <div class="indicator-card">
+        <span class="label">RSI(14)</span>
+        <span class="value" :class="{ overbought: technicalIndicators.rsi > 70, oversold: technicalIndicators.rsi < 30 }">
+          {{ technicalIndicators.rsi.toFixed(2) }}
+        </span>
+        <span class="hint">
+          {{ technicalIndicators.rsi > 70 ? '超買' : technicalIndicators.rsi < 30 ? '超賣' : '正常' }}
+        </span>
+      </div>
+      <div class="indicator-card">
+        <span class="label">MACD</span>
+        <span class="value" :class="{ positive: technicalIndicators.macd.histogram > 0, negative: technicalIndicators.macd.histogram < 0 }">
+          {{ technicalIndicators.macd.macd?.toFixed(2) || '-' }}
+        </span>
+        <span class="hint">
+          Signal: {{ technicalIndicators.macd.signal?.toFixed(2) || '-' }}
+        </span>
+      </div>
+    </div>
+
+    <!-- 財報資料 -->
+    <div v-if="financialData" class="financial-data">
+      <h3>📊 財報數據</h3>
+      <div class="financial-grid">
+        <div class="fin-item">
+          <span class="label">EPS</span>
+          <span class="value">{{ financialData.eps.toFixed(2) }}</span>
+        </div>
+        <div class="fin-item">
+          <span class="label">營收(億)</span>
+          <span class="value">{{ financialData.revenue.toFixed(1) }}</span>
+        </div>
+        <div class="fin-item">
+          <span class="label">毛利率</span>
+          <span class="value">{{ financialData.grossMargin.toFixed(1) }}%</span>
+        </div>
+        <div class="fin-item">
+          <span class="label">淨利率</span>
+          <span class="value">{{ financialData.netProfit.toFixed(1) }}%</span>
+        </div>
+        <div class="fin-item">
+          <span class="label">ROE</span>
+          <span class="value">{{ financialData.roe.toFixed(1) }}%</span>
+        </div>
+        <div class="fin-item">
+          <span class="label">負債比</span>
+          <span class="value">{{ financialData.debtRatio.toFixed(1) }}%</span>
+        </div>
+        <div class="fin-item">
+          <span class="label">本益比</span>
+          <span class="value">{{ financialData.pe.toFixed(1) }}</span>
+        </div>
+        <div class="fin-item">
+          <span class="label">淨值比</span>
+          <span class="value">{{ financialData.pb.toFixed(1) }}</span>
+        </div>
+      </div>
+    </div>
+
     <div ref="chartRef" class="chart-container"></div>
   </div>
 </template>
@@ -308,10 +409,43 @@ watch(() => route.params.id, () => {
 <style scoped>
 .stock-view { max-width: 100%; margin: 0 auto; padding: 1rem; }
 
-.header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.header { 
+  display: flex; 
+  align-items: center; 
+  gap: 1rem; 
+  margin-bottom: 1rem; 
+  flex-wrap: wrap;
+}
+
 .back-btn { padding: 0.5rem 1rem; background: #f0f0f0; border: none; border-radius: 6px; cursor: pointer; }
 .back-btn:hover { background: #e0e0e0; }
-.header h1 { font-size: 1.5rem; }
+
+.header h1 { font-size: 1.5rem; flex: 1; }
+
+.header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.watchlist-btn, .alert-btn {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #e0e0e0;
+  border-radius: 16px;
+  background: white;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.watchlist-btn.active {
+  background: #fff0f5;
+  border-color: #e91e63;
+}
+
+.alert-btn.active {
+  background: #fff8e1;
+  border-color: #ffc107;
+}
 
 .quote-cards {
   display: grid;
@@ -341,9 +475,93 @@ watch(() => route.params.id, () => {
 .quote-card .change.down { color: #26a69a; }
 .quote-card.main-price .change { color: white; }
 
+/* 技術指標 */
+.tech-indicators {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.indicator-card {
+  flex: 1;
+  background: white;
+  padding: 0.75rem;
+  border-radius: 8px;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.indicator-card .label {
+  display: block;
+  font-size: 0.75rem;
+  color: #888;
+  margin-bottom: 0.25rem;
+}
+
+.indicator-card .value {
+  display: block;
+  font-size: 1.25rem;
+  font-weight: bold;
+  color: #2c3e50;
+}
+
+.indicator-card .value.overbought { color: #ef5350; }
+.indicator-card .value.oversold { color: #26a69a; }
+.indicator-card .value.positive { color: #ef5350; }
+.indicator-card .value.negative { color: #26a69a; }
+
+.indicator-card .hint {
+  display: block;
+  font-size: 0.7rem;
+  color: #999;
+  margin-top: 0.25rem;
+}
+
+/* 財報資料 */
+.financial-data {
+  background: white;
+  padding: 1rem;
+  border-radius: 12px;
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.financial-data h3 {
+  font-size: 0.9rem;
+  color: #666;
+  margin: 0 0 0.75rem;
+}
+
+.financial-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+}
+
+.fin-item {
+  text-align: center;
+  padding: 0.5rem;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+
+.fin-item .label {
+  display: block;
+  font-size: 0.7rem;
+  color: #888;
+  margin-bottom: 0.25rem;
+}
+
+.fin-item .value {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
 .chart-container {
   width: 100%;
-  height: 550px;
+  height: 650px;
   background: white;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
@@ -351,5 +569,7 @@ watch(() => route.params.id, () => {
 
 @media (max-width: 768px) {
   .quote-cards { grid-template-columns: repeat(3, 1fr); }
+  .financial-grid { grid-template-columns: repeat(2, 1fr); }
+  .header-actions { width: 100%; justify-content: flex-end; }
 }
 </style>
