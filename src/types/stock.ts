@@ -145,3 +145,15 @@ export interface StockListResponse {
   stocks: StockInfo[]
   total: number
 }
+
+// Financial Data (from TWSE API)
+export interface FinancialData {
+  eps: number           // 每股盈餘
+  revenue: number       // 營收(億)
+  grossMargin: number  // 毛利率(%)
+  netProfit: number     // 淨利率(%)
+  roe: number          // ROE(%)
+  debtRatio: number    // 負債比(%)
+  pe: number           // 本益比
+  pb: number           // 股價淨值比
+}

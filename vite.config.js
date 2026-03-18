@@ -15,6 +15,16 @@ export default defineConfig({
                 target: 'https://query1.finance.yahoo.com',
                 changeOrigin: true,
                 rewrite: function (path) { return path; }
+            },
+            '/finmind': {
+                target: 'https://api.finmindtrade.com',
+                changeOrigin: true,
+                rewrite: function (path) { return path.replace(/^\/finmind/, ''); }
+            },
+            '/twse': {
+                target: 'https://openapi.twse.com.tw',
+                changeOrigin: true,
+                rewrite: function (path) { return path.replace(/^\/twse/, ''); }
             }
         }
     }

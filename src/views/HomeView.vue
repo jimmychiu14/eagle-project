@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStockStore } from '@/stores/stockStore'
 import { useWatchlistStore } from '@/stores/watchlistStore'
-import { twseClient } from '@/services/api/twseClient'
-import { generateMockStockData, formatNumber, formatVolume } from '@/utils/mockData'
+import { finMindClient } from '@/services/api/finmindClient'
+import { generateMockStockData } from '@/utils/mockData'
 
 const router = useRouter()
 const stockStore = useStockStore()
@@ -51,15 +51,20 @@ function getChangeClass(change: number | undefined): string {
 async function loadWatchlistPrices() {
   for (const item of watchlistStore.watchlist) {
     try {
-      const quote = await twseClient.getQuote(item.id)
-      if (quote) {
-        watchlistStore.updateStockPrice(item.id, quote.price, quote.change, quote.changePercent)
+      // 使用 FinMind API 取得股價
+      const data = await finMindClient.getStockPriceDay(item.id.replace('.TW', ''), 5)
+      if (data && data.length >= 2) {
+        const latest = data[data.length - 1]
+        const previous = data[data.length - 2]
+        const change = latest.close - previous.close
+        const changePercent = previous.close > 0 ? (change / previous.close) * 100 : 0
+        watchlistStore.updateStockPrice(item.id, latest.close, change, changePercent)
       } else {
         // Fallback to mock data
-        const data = generateMockStockData(item.id, 2)
-        if (data.length >= 2) {
-          const yesterday = data[data.length - 2]
-          const today = data[data.length - 1]
+        const mockData = generateMockStockData(item.id, 2)
+        if (mockData.length >= 2) {
+          const yesterday = mockData[mockData.length - 2]
+          const today = mockData[mockData.length - 1]
           const change = today.close - yesterday.close
           const changePercent = (change / yesterday.close) * 100
           watchlistStore.updateStockPrice(item.id, today.close, change, changePercent)
@@ -68,10 +73,10 @@ async function loadWatchlistPrices() {
     } catch (error) {
       console.warn(`Failed to load price for ${item.id}:`, error)
       // Fallback to mock data on error
-      const data = generateMockStockData(item.id, 2)
-      if (data.length >= 2) {
-        const yesterday = data[data.length - 2]
-        const today = data[data.length - 1]
+      const mockData = generateMockStockData(item.id, 2)
+      if (mockData.length >= 2) {
+        const yesterday = mockData[mockData.length - 2]
+        const today = mockData[mockData.length - 1]
         const change = today.close - yesterday.close
         const changePercent = (change / yesterday.close) * 100
         watchlistStore.updateStockPrice(item.id, today.close, change, changePercent)
@@ -163,9 +168,6 @@ function setAlert(id: string) {
     }
   }
 }
-
-// 檢查是否在觀察名單
-const isWatched = (id: string) => watchlistStore.isInWatchlist(id)
 </script>
 
 <template>

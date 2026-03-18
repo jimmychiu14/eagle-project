@@ -3,20 +3,19 @@ import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as echarts from 'echarts'
 import { useWatchlistStore } from '@/stores/watchlistStore'
-import { twseClient } from '@/services/api/twseClient'
+import { useStockStore } from '@/stores/stockStore'
 import { 
   generateMockStockData, 
-  generateMockFinancialData,
   calculateMA, 
   calculateRSI, 
   calculateMACD,
-  formatNumber,
   formatVolume
 } from '@/utils/mockData'
 
 const route = useRoute()
 const router = useRouter()
 const watchlistStore = useWatchlistStore()
+const stockStore = useStockStore()
 
 const chartRef = ref<HTMLElement | null>(null)
 const chartInstance = ref<echarts.ECharts | null>(null)
@@ -47,17 +46,8 @@ const stockInfo = ref<{
   amplitude: string
 } | null>(null)
 
-// 財報資料
-const financialData = ref<{
-  eps: number
-  revenue: number
-  grossMargin: number
-  roe: number
-  netProfit: number
-  debtRatio: number
-  pe: number
-  pb: number
-} | null>(null)
+// 財報資料（使用 stockStore 中的真實財報資料）
+const financialData = computed(() => stockStore.financialData)
 
 // 技術指標
 const technicalIndicators = ref<{
@@ -132,7 +122,6 @@ function initChart(data: any[]) {
   
   // 計算均線
   const ma5 = calculateMA(data, 5)
-  const ma10 = calculateMA(data, 10)
   const ma20 = calculateMA(data, 20)
   const ma60 = calculateMA(data, 60)
   
@@ -234,17 +223,14 @@ function initChart(data: any[]) {
 // 載入資料（使用 TWSE API）
 async function loadData() {
   const symbol = (route.params.id as string) || '2330.TW'
+  const normalizedId = symbol.replace('.TW', '')
   
   stockInfo.value = null
-  financialData.value = null
   
   try {
-    // 從 TWSE API 取得資料
-    const [quote, data, financial] = await Promise.all([
-      twseClient.getQuote(symbol),
-      twseClient.getDailyData(symbol),
-      twseClient.getFinancialData(symbol)
-    ])
+    // 從 stockStore (FinMind) 取得資料
+    await stockStore.fetchStockData(normalizedId, '6mo')
+    const data = stockStore.stockData
     
     // 使用真實資料
     if (data && data.length > 0) {
@@ -266,40 +252,22 @@ async function loadData() {
         amplitude: amplitude.toFixed(2) + '%'
       }
       
-      // 使用 TWSE 財報資料或 fallback
-      if (financial) {
-        financialData.value = {
-          eps: financial.eps || 0,
-          revenue: 0,
-          grossMargin: 0,
-          roe: 0,
-          netProfit: 0,
-          debtRatio: 0,
-          pe: financial.pe || 0,
-          pb: financial.pb || 0
-        }
-      } else {
-        financialData.value = generateMockFinancialData(symbol)
-      }
-      
       // 更新觀察名單價格
-      if (quote) {
-        watchlistStore.updateStockPrice(symbol, quote.price, quote.change, quote.changePercent)
-        
-        // 檢查價格提醒
-        const triggered = watchlistStore.checkPriceAlert(symbol)
-        if (triggered) {
-          const direction = triggered.changePercent! > 0 ? '漲' : '跌'
-          setTimeout(() => {
-            alert(`🚨 價格提醒：${triggered.name} (${triggered.id})\n${direction}幅已達 ${Math.abs(triggered.changePercent!).toFixed(2)}%\n(設定門檻: ±${triggered.alertThreshold}%)`)
-          }, 500)
-        }
+      watchlistStore.updateStockPrice(symbol, latest.close, change, changePercent)
+      
+      // 檢查價格提醒
+      const watchlistItem = watchlistStore.watchlist.find(item => item.id === symbol)
+      if (watchlistItem && watchlistItem.alertThreshold && Math.abs(changePercent) >= watchlistItem.alertThreshold) {
+        const direction = changePercent > 0 ? '漲' : '跌'
+        setTimeout(() => {
+          alert(`🚨 價格提醒：${watchlistItem.name} (${watchlistItem.id})\n${direction}幅已達 ${Math.abs(changePercent).toFixed(2)}%\n(設定門檻: ±${watchlistItem.alertThreshold}%)`)
+        }, 500)
       }
       
       initChart(data)
     } else {
       // API 無回應，使用 mock data
-      console.warn('TWSE API returned no data, using mock data')
+      console.warn('FinMind API returned no data, using mock data')
       loadMockData(symbol)
     }
   } catch (error) {
@@ -331,9 +299,6 @@ function loadMockData(symbol: string) {
       volume: formatVolume(latest.volume),
       amplitude: amplitude.toFixed(2) + '%'
     }
-    
-    // 模擬財報資料
-    financialData.value = generateMockFinancialData(symbol)
     
     // 更新觀察名單價格
     watchlistStore.updateStockPrice(symbol, latest.close, change, changePercent)
@@ -427,7 +392,7 @@ watch(() => route.params.id, () => {
       </div>
       <div class="indicator-card">
         <span class="label">MACD</span>
-        <span class="value" :class="{ positive: technicalIndicators.macd.histogram > 0, negative: technicalIndicators.macd.histogram < 0 }">
+        <span class="value" :class="{ positive: (technicalIndicators.macd.histogram ?? 0) > 0, negative: (technicalIndicators.macd.histogram ?? 0) < 0 }">
           {{ technicalIndicators.macd.macd?.toFixed(2) || '-' }}
         </span>
         <span class="hint">

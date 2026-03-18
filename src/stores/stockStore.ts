@@ -1,7 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { twseClient } from '@/services/api/twseClient'
+import { finMindClient } from '@/services/api/finmindClient'
+import { twseFinancialClient } from '@/services/api/twseFinancialClient'
 import { generateMockStockData, generateMockFinancialData } from '@/utils/mockData'
+import type { FinancialData } from '@/types/stock'
 
 interface StockData {
   date: string
@@ -19,7 +21,7 @@ export const useStockStore = defineStore('stock', () => {
   const isLoading = ref<boolean>(false)
   const error = ref<string | null>(null)
   const latestQuote = ref<any>(null)
-  const financialData = ref<any>(null)
+  const financialData = ref<FinancialData | null>(null)
 
   // 股票代碼對應名稱
   const stockNames: Record<string, string> = {
@@ -34,10 +36,6 @@ export const useStockStore = defineStore('stock', () => {
     '2002': '中鋼',
     '5880': '合庫金'
   }
-
-  const normalizedStockId = computed(() => {
-    return currentStockId.value.replace('.TW', '')
-  })
 
   const latestPrice = computed(() => {
     if (stockData.value.length === 0) return null
@@ -70,33 +68,82 @@ export const useStockStore = defineStore('stock', () => {
       currentStockId.value = stockId
       currentStockName.value = getStockName(stockId)
       
-      // 同時取得報價、歷史資料和財報資料
-      const [quote, history, financial] = await Promise.all([
-        twseClient.getQuote(stockId),
-        twseClient.getDailyData(stockId),
-        twseClient.getFinancialData(stockId)
-      ])
-      
-      if (quote) {
-        latestQuote.value = quote
+      // 根據 range 決定取得的天數
+      const daysMap: Record<string, number> = {
+        '1m': 30,
+        '3mo': 90,
+        '6mo': 180,
+        '1y': 365,
+        '2y': 730,
+        '5y': 1825
       }
+      const days = daysMap[range] || 90
+
+      // 使用 FinMind API 取得股票資料
+      const priceData = await finMindClient.getStockPriceDay(normalizedId, days)
       
-      if (history && history.length > 0) {
-        stockData.value = history
+      if (priceData && priceData.length > 0) {
+        // 轉換資料格式
+        stockData.value = priceData.map(item => ({
+          date: item.date,
+          open: item.open,
+          high: item.high,
+          low: item.low,
+          close: item.close,
+          volume: item.volume
+        }))
+
+        // 計算最新報價資訊
+        const latest = priceData[priceData.length - 1]
+        const previous = priceData.length > 1 ? priceData[priceData.length - 2] : latest
+        
+        latestQuote.value = {
+          price: latest.close,
+          change: latest.close - previous.close,
+          changePercent: ((latest.close - previous.close) / previous.close) * 100,
+          open: latest.open,
+          high: latest.high,
+          low: latest.low,
+          volume: latest.volume
+        }
       } else {
-        // Fallback to mock data if API fails
-        console.warn('TWSE API returned no data, using mock data')
+        // Fallback to mock data if API returns no data
+        console.warn('FinMind API returned no data, using mock data')
         stockData.value = generateMockStockData(stockId, 120)
+        financialData.value = generateMockFinancialData(stockId)
       }
       
-      if (financial) {
-        financialData.value = financial
-      } else {
-        // Fallback to mock financial data
+      // 嘗試取得股票基本資訊
+      try {
+        const stockInfo = await finMindClient.getStockInfo(normalizedId)
+        if (stockInfo) {
+          currentStockName.value = stockInfo.name
+        }
+      } catch (infoError) {
+        console.warn('Failed to fetch stock info:', infoError)
+      }
+      
+      // 嘗試從 TWSE API 取得真實財報資料
+      try {
+        const latestPrice = stockData.value.length > 0 ? stockData.value[stockData.value.length - 1].close : undefined
+        const twseFinancial = await twseFinancialClient.getFinancialData(normalizedId, latestPrice)
+        
+        if (twseFinancial) {
+          financialData.value = twseFinancial
+          console.log(`[${normalizedId}] 使用 TWSE 真實財報資料`)
+        } else {
+          // TWSE API 失敗，回退使用 mock
+          console.warn(`[${normalizedId}] TWSE API 無回傳，使用 mock 財報`)
+          financialData.value = generateMockFinancialData(stockId)
+        }
+      } catch (financialError) {
+        console.warn('Failed to fetch TWSE financial data:', financialError)
+        // API 錯誤，使用 mock
         financialData.value = generateMockFinancialData(stockId)
       }
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to fetch stock data'
+      console.error('Stock data fetch error:', e)
       // Fallback to mock data on error
       stockData.value = generateMockStockData(stockId, 120)
       financialData.value = generateMockFinancialData(stockId)
