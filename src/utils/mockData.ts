@@ -242,8 +242,8 @@ export function calculateMACD(
       if (macd[i] === null) {
         signal.push(null)
         histogram.push(null)
-      } else if (i >= macd.length - signalValues.length) {
-        const signalIndex = i - (macd.length - signalValues.length)
+      } else if (i >= macd.length - macdValues.length) {
+        const signalIndex = i - (macd.length - macdValues.length)
         signal.push(Math.round(signalEMA[signalIndex] * 100) / 100)
         histogram.push(Math.round((macd[i]! - signalEMA[signalIndex]) * 100) / 100)
       }

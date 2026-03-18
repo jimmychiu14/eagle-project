@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { yahooFinance } from '@/services/api/yahooClient'
+import { twseClient } from '@/services/api/twseClient'
+import { generateMockStockData, generateMockFinancialData } from '@/utils/mockData'
 
 interface StockData {
   date: string
@@ -18,6 +19,25 @@ export const useStockStore = defineStore('stock', () => {
   const isLoading = ref<boolean>(false)
   const error = ref<string | null>(null)
   const latestQuote = ref<any>(null)
+  const financialData = ref<any>(null)
+
+  // 股票代碼對應名稱
+  const stockNames: Record<string, string> = {
+    '2330': '台積電',
+    '6770': '力積電',
+    '2317': '鴻海',
+    '2454': '聯發科',
+    '2881': '富邦金',
+    '0050': '元大台灣50',
+    '2303': '聯電',
+    '3008': '大立光',
+    '2002': '中鋼',
+    '5880': '合庫金'
+  }
+
+  const normalizedStockId = computed(() => {
+    return currentStockId.value.replace('.TW', '')
+  })
 
   const latestPrice = computed(() => {
     if (stockData.value.length === 0) return null
@@ -27,37 +47,59 @@ export const useStockStore = defineStore('stock', () => {
   const priceChange = computed(() => {
     if (!latestQuote.value) return null
     return {
-      value: latestQuote.value.regularMarketChange,
-      percent: latestQuote.value.regularMarketChangePercent
+      value: latestQuote.value.change,
+      percent: latestQuote.value.changePercent
     }
   })
+
+  /**
+   * 取得股票名稱
+   */
+  function getStockName(stockId: string): string {
+    const normalized = stockId.replace('.TW', '')
+    return stockNames[normalized] || normalized
+  }
 
   async function fetchStockData(stockId: string, range: string = '3mo') {
     isLoading.value = true
     error.value = null
     
     try {
-      // Fetch both quote info and historical data
-      const [quote, history] = await Promise.all([
-        yahooFinance.getQuoteInfo(stockId),
-        yahooFinance.getStockDaily(stockId, range)
+      // 標準化股票代碼
+      const normalizedId = stockId.replace('.TW', '')
+      currentStockId.value = stockId
+      currentStockName.value = getStockName(stockId)
+      
+      // 同時取得報價、歷史資料和財報資料
+      const [quote, history, financial] = await Promise.all([
+        twseClient.getQuote(stockId),
+        twseClient.getDailyData(stockId),
+        twseClient.getFinancialData(stockId)
       ])
       
-      latestQuote.value = quote
-      currentStockId.value = stockId
-      currentStockName.value = quote.shortName
+      if (quote) {
+        latestQuote.value = quote
+      }
       
-      stockData.value = history.map(item => ({
-        date: new Date(item.date * 1000).toISOString().split('T')[0],
-        open: item.open,
-        high: item.high,
-        low: item.low,
-        close: item.close,
-        volume: item.volume
-      }))
+      if (history && history.length > 0) {
+        stockData.value = history
+      } else {
+        // Fallback to mock data if API fails
+        console.warn('TWSE API returned no data, using mock data')
+        stockData.value = generateMockStockData(stockId, 120)
+      }
+      
+      if (financial) {
+        financialData.value = financial
+      } else {
+        // Fallback to mock financial data
+        financialData.value = generateMockFinancialData(stockId)
+      }
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to fetch stock data'
-      stockData.value = []
+      // Fallback to mock data on error
+      stockData.value = generateMockStockData(stockId, 120)
+      financialData.value = generateMockFinancialData(stockId)
     } finally {
       isLoading.value = false
     }
@@ -69,6 +111,7 @@ export const useStockStore = defineStore('stock', () => {
     currentStockName.value = ''
     error.value = null
     latestQuote.value = null
+    financialData.value = null
   }
 
   return {
@@ -79,6 +122,7 @@ export const useStockStore = defineStore('stock', () => {
     error,
     latestPrice,
     priceChange,
+    financialData,
     fetchStockData,
     clearData
   }

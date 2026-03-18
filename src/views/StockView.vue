@@ -3,6 +3,7 @@ import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as echarts from 'echarts'
 import { useWatchlistStore } from '@/stores/watchlistStore'
+import { twseClient } from '@/services/api/twseClient'
 import { 
   generateMockStockData, 
   generateMockFinancialData,
@@ -230,14 +231,86 @@ function initChart(data: any[]) {
   window.addEventListener('resize', () => chartInstance.value?.resize())
 }
 
-// 載入資料（使用模擬資料）
+// 載入資料（使用 TWSE API）
 async function loadData() {
   const symbol = (route.params.id as string) || '2330.TW'
   
   stockInfo.value = null
   financialData.value = null
   
-  // 使用模擬資料
+  try {
+    // 從 TWSE API 取得資料
+    const [quote, data, financial] = await Promise.all([
+      twseClient.getQuote(symbol),
+      twseClient.getDailyData(symbol),
+      twseClient.getFinancialData(symbol)
+    ])
+    
+    // 使用真實資料
+    if (data && data.length > 0) {
+      const latest = data[data.length - 1]
+      const yesterday = data.length > 1 ? data[data.length - 2] : latest
+      
+      const change = latest.close - yesterday.close
+      const changePercent = (change / yesterday.close) * 100
+      const amplitude = ((latest.high - latest.low) / latest.low * 100)
+      
+      stockInfo.value = {
+        price: latest.close.toFixed(2),
+        change: (change >= 0 ? '+' : '') + change.toFixed(2),
+        changePercent: (changePercent >= 0 ? '+' : '') + changePercent.toFixed(2) + '%',
+        open: latest.open.toFixed(2),
+        high: latest.high.toFixed(2),
+        low: latest.low.toFixed(2),
+        volume: formatVolume(latest.volume),
+        amplitude: amplitude.toFixed(2) + '%'
+      }
+      
+      // 使用 TWSE 財報資料或 fallback
+      if (financial) {
+        financialData.value = {
+          eps: financial.eps || 0,
+          revenue: 0,
+          grossMargin: 0,
+          roe: 0,
+          netProfit: 0,
+          debtRatio: 0,
+          pe: financial.pe || 0,
+          pb: financial.pb || 0
+        }
+      } else {
+        financialData.value = generateMockFinancialData(symbol)
+      }
+      
+      // 更新觀察名單價格
+      if (quote) {
+        watchlistStore.updateStockPrice(symbol, quote.price, quote.change, quote.changePercent)
+        
+        // 檢查價格提醒
+        const triggered = watchlistStore.checkPriceAlert(symbol)
+        if (triggered) {
+          const direction = triggered.changePercent! > 0 ? '漲' : '跌'
+          setTimeout(() => {
+            alert(`🚨 價格提醒：${triggered.name} (${triggered.id})\n${direction}幅已達 ${Math.abs(triggered.changePercent!).toFixed(2)}%\n(設定門檻: ±${triggered.alertThreshold}%)`)
+          }, 500)
+        }
+      }
+      
+      initChart(data)
+    } else {
+      // API 無回應，使用 mock data
+      console.warn('TWSE API returned no data, using mock data')
+      loadMockData(symbol)
+    }
+  } catch (error) {
+    console.error('Failed to load stock data:', error)
+    // API 錯誤，使用 mock data
+    loadMockData(symbol)
+  }
+}
+
+// 載入模擬資料（當 API 失敗時）
+function loadMockData(symbol: string) {
   const data = generateMockStockData(symbol, 120)
   
   if (data.length > 0) {

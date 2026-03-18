@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStockStore } from '@/stores/stockStore'
 import { useWatchlistStore } from '@/stores/watchlistStore'
+import { twseClient } from '@/services/api/twseClient'
 import { generateMockStockData, formatNumber, formatVolume } from '@/utils/mockData'
 
 const router = useRouter()
@@ -47,17 +48,36 @@ function getChangeClass(change: number | undefined): string {
 }
 
 // 載入觀察名單的價格資料
-function loadWatchlistPrices() {
-  watchlistStore.watchlist.forEach(item => {
-    const data = generateMockStockData(item.id, 2)
-    if (data.length >= 2) {
-      const yesterday = data[data.length - 2]
-      const today = data[data.length - 1]
-      const change = today.close - yesterday.close
-      const changePercent = (change / yesterday.close) * 100
-      watchlistStore.updateStockPrice(item.id, today.close, change, changePercent)
+async function loadWatchlistPrices() {
+  for (const item of watchlistStore.watchlist) {
+    try {
+      const quote = await twseClient.getQuote(item.id)
+      if (quote) {
+        watchlistStore.updateStockPrice(item.id, quote.price, quote.change, quote.changePercent)
+      } else {
+        // Fallback to mock data
+        const data = generateMockStockData(item.id, 2)
+        if (data.length >= 2) {
+          const yesterday = data[data.length - 2]
+          const today = data[data.length - 1]
+          const change = today.close - yesterday.close
+          const changePercent = (change / yesterday.close) * 100
+          watchlistStore.updateStockPrice(item.id, today.close, change, changePercent)
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed to load price for ${item.id}:`, error)
+      // Fallback to mock data on error
+      const data = generateMockStockData(item.id, 2)
+      if (data.length >= 2) {
+        const yesterday = data[data.length - 2]
+        const today = data[data.length - 1]
+        const change = today.close - yesterday.close
+        const changePercent = (change / yesterday.close) * 100
+        watchlistStore.updateStockPrice(item.id, today.close, change, changePercent)
+      }
     }
-  })
+  }
 }
 
 // 檢查價格提醒
@@ -71,7 +91,7 @@ function checkAlerts() {
   })
 }
 
-onMounted(() => {
+onMounted(async () => {
   // Load recent searches from localStorage
   const saved = localStorage.getItem('eagle_recent_searches')
   if (saved) {
@@ -79,7 +99,7 @@ onMounted(() => {
   }
   
   // 載入觀察名單價格並檢查提醒
-  loadWatchlistPrices()
+  await loadWatchlistPrices()
   checkAlerts()
 })
 
