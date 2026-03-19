@@ -403,7 +403,7 @@ watch(() => route.params.id, () => {
 
     <!-- 財報資料 -->
     <div v-if="financialData" class="financial-data">
-      <h3>📊 財報數據</h3>
+      <h3>📊 財報數據 <span v-if="financialData.isEstimated" class="estimated-badge">估計值</span></h3>
       <div class="financial-grid">
         <div class="fin-item">
           <span class="label">EPS</span>
@@ -568,6 +568,18 @@ watch(() => route.params.id, () => {
   font-size: 0.9rem;
   color: #666;
   margin: 0 0 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.estimated-badge {
+  font-size: 0.7rem;
+  background: #ffc107;
+  color: #333;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-weight: normal;
 }
 
 .financial-grid {

@@ -23,14 +23,18 @@ export interface FinancialData {
   pb: number           // 股價淨值比
 }
 
-// 股票基本價格範圍（模擬用）
+// 股票基本價格範圍（模擬用）- 2026年3月更新
 const stockBasePrices: Record<string, { base: number; volatility: number; name: string }> = {
-  '2330.TW': { base: 750, volatility: 0.03, name: '台積電' },
-  '6770.TW': { base: 45, volatility: 0.05, name: '力積電' },
-  '2317.TW': { base: 180, volatility: 0.04, name: '鴻海' },
-  '2454.TW': { base: 1200, volatility: 0.035, name: '聯發科' },
-  '2881.TW': { base: 65, volatility: 0.025, name: '富邦金' },
-  '0050.TW': { base: 150, volatility: 0.02, name: '元大台灣50' },
+  '2330.TW': { base: 1900, volatility: 0.03, name: '台積電' },
+  '6770.TW': { base: 50, volatility: 0.05, name: '力積電' },
+  '2317.TW': { base: 190, volatility: 0.04, name: '鴻海' },
+  '2454.TW': { base: 1400, volatility: 0.035, name: '聯發科' },
+  '2881.TW': { base: 70, volatility: 0.025, name: '富邦金' },
+  '0050.TW': { base: 200, volatility: 0.02, name: '元大台灣50' },
+  '2303.TW': { base: 55, volatility: 0.04, name: '聯電' },
+  '3008.TW': { base: 2000, volatility: 0.035, name: '大立光' },
+  '2002.TW': { base: 30, volatility: 0.04, name: '中鋼' },
+  '5880.TW': { base: 60, volatility: 0.025, name: '合庫金' },
 }
 
 // 預設價格
@@ -103,6 +107,7 @@ export function generateMockFinancialData(stockId: string): FinancialData {
     debtRatio: Math.round((30 + Math.random() * 30) * 10) / 10,
     pe: Math.round((15 + Math.random() * 20) * 10) / 10,
     pb: Math.round((1.5 + Math.random() * 3) * 10) / 10,
+    isEstimated: true, // 標記為估計值
   }
 }
 
