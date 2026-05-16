@@ -39,11 +39,36 @@
 
 ---
 
-## 技術選型（待確認）
+## 技術選型
 
-- 程式語言：？（C# / Python / 其他）
-- 平台：？（Windows 桌面 / 網頁 / Command Line）
-- 資料來源：？（免費 API / 付費）
+- 程式語言：TypeScript
+- 前端框架：Vue 3
+- 建置工具：Vite
+- 狀態管理：Pinia
+- 路由：Vue Router
+- 圖表：ECharts（個股頁 K 線與技術指標）
+- 資料來源：FinMind 股價 API、TWSE 財報 API，失敗時回退使用 mock data
+
+---
+
+## 開發指令
+
+```bash
+npm install
+npm run dev
+npm run build
+npm run preview
+```
+
+## 專案結構
+
+- `src/views/HomeView.vue`：首頁、搜尋、熱門股票、近期搜尋、觀察名單
+- `src/views/StockView.vue`：個股報價、K 線圖、技術指標、財報資訊
+- `src/stores/stockStore.ts`：股價與財報資料狀態
+- `src/stores/watchlistStore.ts`：觀察名單與價格提醒狀態
+- `src/services/api/finmindClient.ts`：FinMind API client
+- `src/services/api/twseFinancialClient.ts`：TWSE 財報 API client
+- `src/utils/mockData.ts`：API 失敗時使用的模擬資料
 
 ---
 

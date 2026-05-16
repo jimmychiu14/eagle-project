@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as echarts from 'echarts'
 import { useWatchlistStore } from '@/stores/watchlistStore'
@@ -11,6 +11,7 @@ import {
   calculateMACD,
   formatVolume
 } from '@/utils/mockData'
+import type { MockStockData } from '@/utils/mockData'
 
 const route = useRoute()
 const router = useRouter()
@@ -19,6 +20,11 @@ const stockStore = useStockStore()
 
 const chartRef = ref<HTMLElement | null>(null)
 const chartInstance = ref<echarts.ECharts | null>(null)
+const handleResize = () => chartInstance.value?.resize()
+
+function normalizeStockSymbol(id: string): string {
+  return id.includes('.TW') ? id : `${id}.TW`
+}
 
 // 股票代碼對應名稱
 const stockNames: Record<string, string> = {
@@ -64,24 +70,26 @@ const stockId = computed(() => {
   return id?.replace('.TW', '') || '2330'
 })
 
+const stockSymbol = computed(() => normalizeStockSymbol(stockId.value))
+
 const stockName = computed(() => {
   return stockNames[stockId.value] || route.params.id?.toString().replace('.TW', '') || '股票'
 })
 
 // 檢查是否在觀察名單
 const isWatched = computed(() => {
-  return watchlistStore.isInWatchlist(route.params.id as string)
+  return watchlistStore.isInWatchlist(stockSymbol.value)
 })
 
 // 設定價格提醒
 const alertThreshold = computed(() => {
-  const item = watchlistStore.watchlist.find(w => w.id === route.params.id)
+  const item = watchlistStore.watchlist.find(w => w.id === stockSymbol.value)
   return item?.alertThreshold
 })
 
 // 切換觀察名單
 function toggleWatchlist() {
-  const id = route.params.id as string
+  const id = stockSymbol.value
   if (watchlistStore.isInWatchlist(id)) {
     watchlistStore.removeFromWatchlist(id)
   } else {
@@ -91,7 +99,7 @@ function toggleWatchlist() {
 
 // 設定價格提醒
 function setAlert() {
-  const id = route.params.id as string
+  const id = stockSymbol.value
   const current = alertThreshold.value
   const threshold = prompt('請輸入價格漲跌幅門檻（%）:', current?.toString() || '5')
   if (threshold) {
@@ -107,7 +115,7 @@ function setAlert() {
 }
 
 // 初始化 K 線圖（包含均線、成交量、RSI、MACD）
-function initChart(data: any[]) {
+function initChart(data: MockStockData[]) {
   if (!chartRef.value || data.length === 0) return
   
   if (chartInstance.value) {
@@ -217,12 +225,13 @@ function initChart(data: any[]) {
   }
   
   chartInstance.value.setOption(option)
-  window.addEventListener('resize', () => chartInstance.value?.resize())
+  window.removeEventListener('resize', handleResize)
+  window.addEventListener('resize', handleResize)
 }
 
 // 載入資料（使用 TWSE API）
 async function loadData() {
-  const symbol = (route.params.id as string) || '2330.TW'
+  const symbol = stockSymbol.value
   const normalizedId = symbol.replace('.TW', '')
   
   stockInfo.value = null
@@ -318,6 +327,11 @@ function loadMockData(symbol: string) {
 
 onMounted(() => {
   loadData()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+  chartInstance.value?.dispose()
 })
 
 watch(() => route.params.id, () => {

@@ -143,9 +143,10 @@ function openAddDialog() {
 function addToWatchlist() {
   if (!newWatchlistId.value) return
   
-  // 自動判斷名稱
-  const name = newWatchlistName.value || stockNames[newWatchlistId.value] || newWatchlistId.value.replace('.TW', '')
   const id = newWatchlistId.value.includes('.TW') ? newWatchlistId.value : `${newWatchlistId.value}.TW`
+
+  // 自動判斷名稱
+  const name = newWatchlistName.value || stockNames[id] || id.replace('.TW', '')
   
   watchlistStore.addToWatchlist(id, name)
   showAddDialog.value = false

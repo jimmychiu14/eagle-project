@@ -21,6 +21,7 @@ export interface FinancialData {
   debtRatio: number    // 負債比 (%)
   pe: number           // 本益比
   pb: number           // 股價淨值比
+  isEstimated?: boolean // 是否為估計值
 }
 
 // 股票基本價格範圍（模擬用）- 2026年3月更新
