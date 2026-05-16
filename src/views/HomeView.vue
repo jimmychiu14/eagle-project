@@ -58,7 +58,7 @@ async function loadWatchlistPrices() {
         const previous = data[data.length - 2]
         const change = latest.close - previous.close
         const changePercent = previous.close > 0 ? (change / previous.close) * 100 : 0
-        watchlistStore.updateStockPrice(item.id, latest.close, change, changePercent)
+        watchlistStore.updateStockPrice(item.id, latest.close, change, changePercent, 'finmind')
       } else {
         // Fallback to mock data
         const mockData = generateMockStockData(item.id, 2)
@@ -67,7 +67,7 @@ async function loadWatchlistPrices() {
           const today = mockData[mockData.length - 1]
           const change = today.close - yesterday.close
           const changePercent = (change / yesterday.close) * 100
-          watchlistStore.updateStockPrice(item.id, today.close, change, changePercent)
+          watchlistStore.updateStockPrice(item.id, today.close, change, changePercent, 'mock')
         }
       }
     } catch (error) {
@@ -79,7 +79,7 @@ async function loadWatchlistPrices() {
         const today = mockData[mockData.length - 1]
         const change = today.close - yesterday.close
         const changePercent = (change / yesterday.close) * 100
-        watchlistStore.updateStockPrice(item.id, today.close, change, changePercent)
+        watchlistStore.updateStockPrice(item.id, today.close, change, changePercent, 'mock')
       }
     }
   }
@@ -248,6 +248,13 @@ function setAlert(id: string) {
               <span class="stock-id">{{ item.id }}</span>
               <span class="stock-name">{{ item.name }}</span>
               <span v-if="item.alertThreshold" class="alert-badge">🔔 {{ item.alertThreshold }}%</span>
+              <span
+                v-if="item.priceSource"
+                class="source-badge"
+                :class="item.priceSource"
+              >
+                {{ item.priceSource === 'finmind' ? 'FinMind' : '模擬資料' }}
+              </span>
             </div>
             <div class="stock-price">
               <span v-if="item.price" class="price">{{ item.price.toFixed(2) }}</span>
@@ -511,6 +518,23 @@ function setAlert(id: string) {
   background: #fff3cd;
   color: #856404;
   border-radius: 8px;
+}
+
+.source-badge {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.source-badge.finmind {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.source-badge.mock {
+  background: #fff3cd;
+  color: #856404;
 }
 
 .stock-price {

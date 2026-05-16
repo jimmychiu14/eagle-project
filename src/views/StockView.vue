@@ -51,6 +51,7 @@ const stockInfo = ref<{
   volume: string
   amplitude: string
 } | null>(null)
+const priceSource = ref<'finmind' | 'mock' | null>(null)
 
 // 財報資料（使用 stockStore 中的真實財報資料）
 const financialData = computed(() => stockStore.financialData)
@@ -262,7 +263,8 @@ async function loadData() {
       }
       
       // 更新觀察名單價格
-      watchlistStore.updateStockPrice(symbol, latest.close, change, changePercent)
+      priceSource.value = 'finmind'
+      watchlistStore.updateStockPrice(symbol, latest.close, change, changePercent, 'finmind')
       
       // 檢查價格提醒
       const watchlistItem = watchlistStore.watchlist.find(item => item.id === symbol)
@@ -289,7 +291,8 @@ async function loadData() {
 // 載入模擬資料（當 API 失敗時）
 function loadMockData(symbol: string) {
   const data = generateMockStockData(symbol, 120)
-  
+  priceSource.value = 'mock'
+
   if (data.length > 0) {
     const latest = data[data.length - 1]
     const yesterday = data.length > 1 ? data[data.length - 2] : latest
@@ -310,7 +313,7 @@ function loadMockData(symbol: string) {
     }
     
     // 更新觀察名單價格
-    watchlistStore.updateStockPrice(symbol, latest.close, change, changePercent)
+    watchlistStore.updateStockPrice(symbol, latest.close, change, changePercent, 'mock')
     
     // 檢查價格提醒
     const triggered = watchlistStore.checkPriceAlert(symbol)
@@ -366,6 +369,13 @@ watch(() => route.params.id, () => {
     <div v-if="stockInfo" class="quote-cards">
       <div class="quote-card main-price">
         <div class="label">收盤價</div>
+        <div
+          v-if="priceSource"
+          class="source-badge"
+          :class="priceSource"
+        >
+          {{ priceSource === 'finmind' ? 'FinMind' : '模擬資料' }}
+        </div>
         <div class="value">{{ stockInfo.price }}</div>
         <div class="change" :class="{ up: stockInfo.change.startsWith('+'), down: stockInfo.change.startsWith('-') }">
           {{ stockInfo.change }} ({{ stockInfo.changePercent }})
@@ -594,6 +604,25 @@ watch(() => route.params.id, () => {
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
   font-weight: normal;
+}
+
+.source-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  margin-bottom: 0.35rem;
+  font-weight: 600;
+}
+
+.source-badge.finmind {
+  background: rgba(232, 245, 233, 0.95);
+  color: #2e7d32;
+}
+
+.source-badge.mock {
+  background: rgba(255, 243, 205, 0.95);
+  color: #856404;
 }
 
 .financial-grid {

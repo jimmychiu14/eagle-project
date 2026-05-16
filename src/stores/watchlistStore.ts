@@ -13,6 +13,7 @@ export interface WatchlistItem {
   change?: number      // 漲跌
   changePercent?: number // 漲跌幅%
   alertThreshold?: number // 價格提醒門檻（%）
+  priceSource?: 'finmind' | 'mock' // 價格資料來源
 }
 
 const STORAGE_KEY = 'eagle_watchlist'
@@ -74,12 +75,19 @@ export const useWatchlistStore = defineStore('watchlist', () => {
   }
   
   // 更新股票價格資訊
-  function updateStockPrice(id: string, price: number, change: number, changePercent: number) {
+  function updateStockPrice(
+    id: string,
+    price: number,
+    change: number,
+    changePercent: number,
+    source: WatchlistItem['priceSource'] = 'finmind'
+  ) {
     const item = watchlist.value.find(w => w.id === id)
     if (item) {
       item.price = price
       item.change = change
       item.changePercent = changePercent
+      item.priceSource = source
     }
   }
   
